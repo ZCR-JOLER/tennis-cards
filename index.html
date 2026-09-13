@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>网球一刻 · 每天一个网球故事</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- 顶部进度条 -->
+  <div id="progress"><div id="progress-fill"></div></div>
+
+  <!-- 浮动顶栏 -->
+  <header id="topbar">
+    <div class="logo">🎾 网球一刻</div>
+    <nav class="filters" id="filters">
+      <button class="f-chip active" data-filter="all">全部</button>
+      <button class="f-chip" data-filter="history">📅 历史上的今天</button>
+      <button class="f-chip" data-filter="quiz">🎯 竞猜</button>
+      <button class="f-chip" data-filter="fact">💡 冷知识</button>
+      <button class="f-chip" data-filter="news">📰 新闻</button>
+      <button class="f-chip" data-filter="fav">⭐ 收藏</button>
+    </nav>
+  </header>
+
+  <!-- 竖向卡片流 -->
+  <main id="feed" class="feed"></main>
+
+  <!-- 右侧操作栏 -->
+  <aside id="rail">
+    <button class="rail-btn" id="btn-up" title="上一条 (↑)">⌃</button>
+    <button class="rail-btn" id="btn-detail" title="详情 / 答案 (→)">⇢</button>
+    <button class="rail-btn" id="btn-like" title="喜欢 (L)">❤️</button>
+    <button class="rail-btn" id="btn-fav" title="收藏">⭐</button>
+    <button class="rail-btn" id="btn-share" title="分享">↗</button>
+    <button class="rail-btn" id="btn-down" title="下一条 (↓)">⌄</button>
+  </aside>
+
+  <div id="toast"></div>
+
+  <script src="data/generated.js"></script>
+  <script src="data/news.js"></script>
+  <script src="js/content-extra.js"></script>
+  <script src="js/content.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

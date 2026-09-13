@@ -1,0 +1,30 @@
+name: 更新新闻卡片
+
+on:
+  schedule:
+    # 每 3 小时抓取一次新闻（UTC 时间）
+    - cron: '0 */3 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 抓取网球新闻
+        run: node tools/crawler.js
+
+      - name: 提交更新
+        run: |
+          git config user.name "tennis-cards-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/news.js
+          git diff --cached --quiet || (git commit -m "chore: 更新新闻卡片" && git push)

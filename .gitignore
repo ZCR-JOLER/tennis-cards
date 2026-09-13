@@ -1,0 +1,14 @@
+# 临时/调试文件
+.edge-tmp*
+.shot*.png
+*.log
+debug.html
+diag.html
+.test-dom.js
+
+# 依赖（本项目无构建依赖，防误留）
+node_modules/
+
+# 系统文件
+Thumbs.db
+.DS_Store
