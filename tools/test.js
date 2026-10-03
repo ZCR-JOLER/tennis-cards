@@ -22,7 +22,7 @@ function makeEl(tag) {
   };
 }
 const feedEl = makeEl('main');
-global.window = {};
+global.window = { addEventListener() {} };
 global.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 // 注：Node 18+ 已有只读全局 navigator，无需覆盖
 global.IntersectionObserver = class { observe() {} disconnect() {} };
@@ -45,6 +45,7 @@ try {
     if (fs.existsSync(p)) evalGlobal(p);
   }
   evalGlobal(path.join(ROOT, 'js', 'content.js'));
+  evalGlobal(path.join(ROOT, 'js', 'knowledge.js'));
   // 严格模式 eval 作用域不外泄函数，测试专用注入一个渲染出口（不影响浏览器）
   evalGlobal(path.join(ROOT, 'js', 'app.js'), '\n;globalThis.__tkCardHtml = cardHtml;');
   console.log('脚本执行：OK');
@@ -101,17 +102,37 @@ try {
   check(false, '战报渲染冒烟测试（异常：' + e.message + '）');
 }
 
-// ---------- 联想三屏结构冒烟：真实赛果卡应含 main/detail/assoc 三面板 ----------
+// ---------- 四屏结构冒烟：百科 ← 原卡 → 战报 → 联想 ----------
 try {
   const real = CARDS.find((c) => c.report && c.players && c.players.length === 2 && c.year);
   check(!!real, '存在可用于联想的真实赛果卡');
   if (real) {
     const h = globalThis.__tkCardHtml(real, 0, 1);
     const panels = (h.match(/class="panel /g) || []).length;
-    check(h.includes('assoc-panel') && panels === 3, '联想第三面板已挂载（面板数=' + panels + '）');
-    check(h.includes('data-act="jump"'), '联想条目含可跳转的关联卡片');
-    check(h.includes('跨越时空'), '联想标题渲染');
+    check(h.includes('know-panel'), '百科左滑面板已挂载');
+    check(h.includes('assoc-panel') && panels === 4, '四屏结构完整（面板数=' + panels + '）');
+    check(h.includes('data-act="jump"') && h.includes('跨越时空'), '联想面板含可跳转关联卡');
   }
+  // 赛事百科 + 当地志命中：温网卡两者都应出现
+  const wim = CARDS.find((c) => (c.title || '').includes('温布尔登'));
+  const wh = wim && globalThis.__tkCardHtml(wim, 0, 1);
+  check(!!wh && wh.includes('赛事百科'), '赛事百科关键词命中');
+  check(!!wh && wh.includes('当地志'), '当地志板块命中');
+  // 冷知识板块已按需求移除：无赛事/场地/国籍信息的卡不挂百科面板
+  const plain = { id: 'x-plain', type: 'fact', title: '随便一张没赛事的卡', teaser: 't', detail: 'd' };
+  check(!globalThis.__tkCardHtml(plain, 0, 1).includes('know-panel'), '无相关知识则不挂百科面板');
+  // 国家网球：合成带 ioc 的卡应渲染双方母国与国旗
+  const kn = {
+    id: 'synthetic-ioc', type: 'history', date: '07-06', year: 2008,
+    title: '费德勒 夺得 温布尔登锦标赛 冠军', teaser: 't', detail: 'd',
+    players: ['Roger Federer', 'Rafael Nadal'],
+    report: { prev: [2, 1], recent: [], sW: { w: 0, l: 0, t: 0 }, sL: { w: 0, l: 0, t: 0 },
+      surf: '草地', ioc: ['SUI', 'ESP'] },
+  };
+  const kh = globalThis.__tkCardHtml(kn, 0, 1);
+  check(kh.includes('国家网球') && kh.includes('🇨🇭') && kh.includes('🇪🇸'), '国家网球板块与国旗渲染');
+  const KB = globalThis.window.TENNIS_KB;
+  check(!!(KB && KB.cities && KB.countries && !KB.rules), '知识库结构：有当地志/国家网球，无冷知识');
   // 整体渲染（renderFeed）产出的 feed 里也应能扫到联想面板
   check(feedEl.innerHTML.includes('assoc-panel'), '全量 feed 渲染含联想面板');
 } catch (e) {

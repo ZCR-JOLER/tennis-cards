@@ -87,12 +87,14 @@ body {
   width: 100%; height: 100%;
   flex: 0 0 100%;
   scroll-snap-align: start;
-  scroll-snap-stop: always; /* 快滑也逐级落屏：原卡→战报→联想 */
-  display: flex; flex-direction: column; justify-content: center; align-items: center;
+  scroll-snap-stop: always; /* 快滑也逐级落屏：百科←原卡→战报→联想 */
+  display: flex; flex-direction: column; justify-content: flex-start; align-items: center;
   padding: 72px 20px 40px;
   overflow-y: auto;
 }
-.panel-inner { width: 100%; max-width: 660px; }
+/* margin:auto 实现“安全居中”：内容矮时居中，内容溢出时从顶部排布可正常滚动，
+   修复 justify-content:center 裁掉顶部标题的 bug */
+.panel-inner { width: 100%; max-width: 660px; margin: auto 0; }
 
 /* 卡片主题背景 */
 .card[data-type="history"] { background: linear-gradient(160deg, #0b3d2e 0%, #14532d 55%, #04170e 100%); }
@@ -232,6 +234,30 @@ body {
 }
 .rp-line + .rp-line { margin-top: 2px; }
 .rp-line .em { color: #fcd34d; font-weight: 600; }
+
+/* ---------- 网球百科（左滑第一屏） ---------- */
+.know-panel { background: rgba(22,14,2,.45); }
+.kn-title {
+  font-size: 12.5px; letter-spacing: 2px; font-weight: 700;
+  color: #fcd34d; margin-bottom: 6px;
+}
+.kn-from { font-size: 12px; color: var(--muted); margin-bottom: 16px; }
+.kn-group + .kn-group { border-top: 1px dashed rgba(252,211,77,.18); margin-top: 14px; padding-top: 12px; }
+.kn-gname {
+  font-size: 12px; font-weight: 700; letter-spacing: 1.5px;
+  color: #fde68a; margin-bottom: 6px;
+}
+.kn-line {
+  font-size: clamp(13px, 2vw, 15px); line-height: 1.8; color: var(--text);
+  padding: 8px 0; border-bottom: 1px dashed rgba(252,211,77,.14);
+}
+.kn-line:last-of-type { border-bottom: none; }
+.hints-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; margin-top: 4px;
+}
+.hint-left { color: #fcd34d; animation: nudge-l 1.8s infinite; }
+@keyframes nudge-l { 0%,100% { transform: translateX(0); } 50% { transform: translateX(-8px); } }
 
 /* ---------- 联想面板（第三屏） ---------- */
 .assoc-panel { background: rgba(10,4,26,.38); }

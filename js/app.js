@@ -3,7 +3,7 @@
 /* ============================================================
  * 网球一刻 · 交互逻辑
  *  - 竖向滑屏切换卡片（TikTok 式）
- *  - 卡内右滑两级：原卡 → 战报详情 → 🔗 联想网络（左滑逐级返回）
+ *  - 卡内横滑四屏：📚 百科 ← 原卡 → 📊 战报 → 🔗 联想（左右滑逐级移动）
  *  - 竞猜点选作答、喜欢 / 收藏 / 分享（localStorage 持久化）
  *  - 桌面键盘 ↑↓ 切换、→ 下一屏、← 上一屏
  * ============================================================ */
@@ -251,10 +251,84 @@ function assocHtml(card, groups) {
   return '<div class="card-assoc">' + inner + '</div>';
 }
 
+/* ---------------- 网球百科（原卡左滑，数据在 js/knowledge.js） ---------------- */
+const IOC2ISO = { SUI:'CH',GBR:'GB',USA:'US',FRA:'FR',CRO:'HR',ITA:'IT',GER:'DE',ARG:'AR',JPN:'JP',CHN:'CN',AUS:'AU',CZE:'CZ',SVK:'SK',UKR:'UA',NED:'NL',BEL:'BE',SWE:'SE',POL:'PL',KAZ:'KZ',CAN:'CA',BRA:'BR',CHI:'CL',GRE:'GR',BUL:'BG',ROU:'RO',DEN:'DK',TPE:'TW',IND:'IN',KOR:'KR',RSA:'ZA',NZL:'NZ',EGY:'EG',TUN:'TN',MAR:'MA',RUS:'RU',BLR:'BY',HUN:'HU',AUT:'AT',MEX:'MX',COL:'CO',PER:'PE',UZB:'UZ',GEO:'GE',FIN:'FI',NOR:'NO',ESP:'ES',SRB:'RS',TCH:'CZ',YUG:'RS',URS:'RU',EUN:'RU',FRG:'DE',GDR:'DE' };
+function flagOf(ioc) {
+  const cc = IOC2ISO[ioc] || (ioc && ioc.length === 2 ? ioc : null);
+  return cc ? String.fromCodePoint(127397 + cc.charCodeAt(0), 127397 + cc.charCodeAt(1)) : '🎾';
+}
+/* 赛内冠军索引：赛事关键词 → 冠军国籍 IOC → {球员名集合, 年份列表}（懒建一次） */
+let CHAMPS = null;
+function champIndex() {
+  if (CHAMPS) return CHAMPS;
+  const idx = new Map();
+  const KB = window.TENNIS_KB;
+  if (!KB) return (CHAMPS = idx);
+  for (const c of ALL_CARDS) {
+    if (!c.report || !c.report.ioc || !c.report.ioc[0] || String(c.title).indexOf('冠军') < 0) continue;
+    let key = null, len = 0;
+    for (const k in KB.tourneys) { const i = c.title.indexOf(k); if (i >= 0 && k.length > len) { key = k; len = k.length; } }
+    if (!key) continue;
+    let byC = idx.get(key); if (!byC) idx.set(key, byC = new Map());
+    let e = byC.get(c.report.ioc[0]); if (!e) byC.set(c.report.ioc[0], e = { names: new Set(), years: [] });
+    if (c.players && c.players[0]) e.names.add(c.players[0]);
+    if (c.year) e.years.push(c.year);
+  }
+  return (CHAMPS = idx);
+}
+function knowFor(card) {
+  const KB = window.TENNIS_KB;
+  if (!KB) return [];
+  const secs = [];
+  const hay = (card.title || '') + '\n' + (card.detail || '');
+  let key = null, t = null, len = 0;
+  for (const k in KB.tourneys) { if (hay.indexOf(k) >= 0 && k.length > len) { key = k; t = KB.tourneys[k]; len = k.length; } }
+  if (t) {
+    secs.push({ head: t.icon + ' 赛事百科 · ' + t.name, lines: t.lines });
+    const city = KB.cities[key];
+    if (city) secs.push({ head: '🏙️ 当地志 · ' + city.name, lines: city.lines });
+  }
+  const rp = card.report;
+  const surf = rp && rp.surf;
+  if (surf && KB.surfaces[surf]) secs.push({ head: '⛹️ 场地秘密 · ' + surf, lines: KB.surfaces[surf] });
+  if (rp && Array.isArray(rp.ioc) && card.players) {
+    const lines = [];
+    for (let i = 0; i < 2; i++) {
+      const cc = String(rp.ioc[i] || '').toUpperCase();
+      const cty = cc && KB.countries[cc];
+      if (!cty) continue;
+      lines.push(flagOf(cc) + ' ' + (card.players[i] || '?') + ' · ' + cty.n + '：' + cty.t);
+      if (key) {
+        const e = (champIndex().get(key) || new Map()).get(cc);
+        if (e && e.years.length) {
+          const yrs = [...new Set(e.years)].sort();
+          const nm = [...e.names];
+          const whoStr = nm.length === 1 ? nm[0] : nm.slice(0, 3).join('、') + (nm.length > 3 ? ' 等' : '');
+          lines.push('🏟 同国籍在此夺冠 ' + e.years.length + ' 次（' + whoStr + '）：' +
+            yrs.slice(-6).join('、') + (yrs.length > 6 ? '…' : ''));
+        }
+      }
+    }
+    if (lines.length) secs.push({ head: '🌍 国家网球 · 双方球员母国', lines });
+  }
+  return secs;
+}
+function knowHtml(card, secs) {
+  let inner = '<div class="kn-title">📚 网球百科</div>' +
+    '<div class="kn-from">' + CARD_TYPES[card.type].icon + ' 由这张卡延伸 · ' + esc(card.title) + '</div>';
+  for (const s of secs) {
+    inner += '<div class="kn-group"><div class="kn-gname">' + esc(s.head) + '</div>' +
+      s.lines.map((l) => '<div class="kn-line">' + esc(l) + '</div>').join('') + '</div>';
+  }
+  inner += '<button class="back-btn" data-act="main">右滑或点此返回原卡 <span>⟶</span></button>';
+  return '<div class="panel know-panel"><div class="panel-inner">' + inner + '</div></div>';
+}
+
 function cardHtml(card, i, total) {
   const t = CARD_TYPES[card.type];
-  const isToday = card.type === 'history' && card.date === todayMD();
   const isQuiz = card.type === 'quiz';
+  const know = knowFor(card);
+  const isToday = card.type === 'history' && card.date === todayMD();
   const hintText = isQuiz ? '右滑看答案与解析' : '右滑看完整故事 · 战报';
 
   let badges = '<div class="badges">' +
@@ -323,9 +397,13 @@ function cardHtml(card, i, total) {
   return '' +
     '<section class="card" data-type="' + card.type + '" data-id="' + card.id + '" data-idx="' + i + '">' +
       '<div class="hwrap">' +
+      (know.length ? knowHtml(card, know) : '') +
         '<div class="panel main-panel"><div class="panel-inner">' +
           badges + mainBody +
-          '<button class="swipe-hint" data-act="detail">' + hintText + ' <span>⟶</span></button>' +
+          '<div class="hints-row">' +
+            (know.length ? '<button class="swipe-hint hint-left" data-act="know">⟵ 左滑看网球百科</button>' : '<span></span>') +
+            '<button class="swipe-hint" data-act="detail">' + hintText + ' <span>⟶</span></button>' +
+          '</div>' +
         '</div><div class="watermark">' + t.icon + '</div></div>' +
         '<div class="panel detail-panel"><div class="panel-inner">' +
           badges +
@@ -358,10 +436,20 @@ function renderFeed() {
   }
   feed.innerHTML = state.order.map((c, i) => cardHtml(c, i, state.order.length)).join('');
   feed.scrollTop = 0;
+  resetHwraps();
   observeCards();
   updateRail();
   updateProgress();
 }
+/* 横向视口初始定位到主卡（百科面板在其左侧）；窗口尺寸变化时重新对齐 */
+function resetHwraps() {
+  document.querySelectorAll('.hwrap').forEach((h) => {
+    const kids = Array.prototype.slice.call(h.children);
+    const mi = kids.findIndex((p) => p.classList && p.classList.contains('main-panel'));
+    if (mi > 0) h.scrollLeft = mi * h.clientWidth;
+  });
+}
+window.addEventListener('resize', resetHwraps);
 
 /* ---------------- 观察当前卡片 ---------------- */
 let observer = null;
@@ -402,13 +490,20 @@ function nav(delta) {
   const feed = $('#feed');
   feed.scrollTo({ top: next * feed.clientHeight, behavior: 'smooth' });
 }
-/* 卡内面板逐级导航：0 原卡 / 1 战报 / 2 联想 */
+/* 卡内面板逐级导航：百科(0) → 原卡 → 战报 → 联想（按类名定位，兼容无百科的卡） */
 function goPanel(cardEl, i) {
   const h = cardEl && cardEl.querySelector('.hwrap');
   if (!h) return;
   const max = h.querySelectorAll(':scope > .panel').length - 1;
   i = Math.max(0, Math.min(max, i));
   h.scrollTo({ left: i * h.clientWidth, behavior: 'smooth' });
+}
+function panelPos(cardEl, cls) {
+  const h = cardEl && cardEl.querySelector('.hwrap');
+  if (!h) return 0;
+  const kids = Array.prototype.slice.call(h.children);
+  const i = kids.findIndex((p) => p.classList && p.classList.contains(cls));
+  return i < 0 ? 0 : i;
 }
 function panelIdx(cardEl) {
   const h = cardEl && cardEl.querySelector('.hwrap');
@@ -417,14 +512,15 @@ function panelIdx(cardEl) {
 }
 function revealDetail() {
   const el = currentCardEl();
-  if (el) goPanel(el, 1);
+  if (el) goPanel(el, panelPos(el, 'detail-panel'));
 }
 function stepPanel(delta) { // 键盘/按钮：前进或后退一屏
   const el = currentCardEl();
   if (el) goPanel(el, panelIdx(el) + delta);
 }
 function backToMain(cardEl) {
-  goPanel(cardEl || currentCardEl(), 0);
+  const el = cardEl || currentCardEl();
+  goPanel(el, panelPos(el, 'main-panel'));
 }
 /* 联想卡跳转：在当前卡组定位并滚过去，顺带把出发的卡复位 */
 function jumpToCard(fromCardEl, id) {
@@ -433,12 +529,12 @@ function jumpToCard(fromCardEl, id) {
     setFilter('all');
     pos = state.order.findIndex((c) => c.id === id);
   }
-  if (fromCardEl) goPanel(fromCardEl, 0);
+  if (fromCardEl) goPanel(fromCardEl, panelPos(fromCardEl, 'main-panel'));
   if (pos < 0) { toast('关联卡片未找到'); return; }
   const feed = $('#feed');
   feed.scrollTo({ top: pos * feed.clientHeight, behavior: 'smooth' });
   const el = document.querySelector('.card[data-idx="' + pos + '"]');
-  if (el) goPanel(el, 0);
+  if (el) goPanel(el, panelPos(el, 'main-panel'));
   toast('🔗 已跳转到关联卡片');
 }
 
@@ -465,6 +561,8 @@ function answerQuiz(cardId, optIdx) {
   const newEl = tmp.firstElementChild;
   el.replaceWith(newEl);
   observer.observe(newEl);
+  const hh = newEl.querySelector('.hwrap');
+  if (hh) hh.scrollLeft = panelPos(newEl, 'main-panel') * hh.clientWidth;
   const correct = optIdx === card.answer;
   toast(correct ? '✅ 答对了！右滑看解析' : '❌ 答错了，右滑看解析');
 }
@@ -511,8 +609,10 @@ document.addEventListener('click', (e) => {
     if (act === 'answer') answerQuiz(el.dataset.card, Number(el.dataset.opt));
     else if (act === 'detail') revealDetail();
     else if (act === 'back') backToMain(el.closest('.card'));
-    else if (act === 'assoc') goPanel(el.closest('.card'), 2);
-    else if (act === 'back2') goPanel(el.closest('.card'), 1);
+    else if (act === 'know') goPanel(el.closest('.card'), 0);
+    else if (act === 'main') goPanel(el.closest('.card'), panelPos(el.closest('.card'), 'main-panel'));
+    else if (act === 'assoc') goPanel(el.closest('.card'), panelPos(el.closest('.card'), 'assoc-panel'));
+    else if (act === 'back2') goPanel(el.closest('.card'), panelPos(el.closest('.card'), 'detail-panel'));
     else if (act === 'jump') jumpToCard(el.closest('.card'), el.dataset.id);
     else if (act === 'filter') setFilter(el.dataset.filter);
     return;

@@ -147,7 +147,8 @@ function rowToMatch(r, tour) {
     wseed: pInt(r[8]), lseed: pInt(r[16]),
     went: String(r[9] || '').trim().toUpperCase(), lent: String(r[17] || '').trim().toUpperCase(),
     wage: pInt(Math.floor(Number(r[14]) || 0) || ''), lage: pInt(Math.floor(Number(r[22]) || 0) || ''),
-    wr: pInt(r[45]), lr: pInt(r[47]) };
+    wr: pInt(r[45]), lr: pInt(r[47]),
+    wioc: String(r[13] || '').trim().toUpperCase(), lioc: String(r[21] || '').trim().toUpperCase() };
 }
 
 /* ---------- 从比分 / 统计生成精彩看点 ---------- */
@@ -260,6 +261,7 @@ function cardReport(idx, m) {
     wr: m.wr, lr: m.lr,                     // 赛前世界排名
     ws: m.wseed, ls: m.lseed, we: m.went, le: m.lent,  // 种子与入场身份
     wa: m.wage, la: m.lage,                 // 年龄（岁）
+    ioc: [m.wioc || '', m.lioc || ''],      // [胜者, 负者] 国籍 IOC 代码
     tt: [cntHere(wk), cntHere(lk)],         // 赛前在本赛事夺冠次数
     maj: [cntMajor(wk), cntMajor(lk)],      // 赛前生涯大满贯数
     form: [form(wk), form(lk)],             // 赛前近五场 W/L
@@ -400,7 +402,7 @@ async function loadRepo(repo) {
 /* ---------- 内置样例（离线自测用） ---------- */
 const FIXTURE = '' +
   'tourney_id,tourney_name,surface,draw_size,tourney_level,tourney_date,match_num,winner_id,winner_seed,winner_entry,winner_name,winner_hand,winner_ht,winner_ioc,winner_age,loser_id,loser_seed,loser_entry,loser_name,loser_hand,loser_ht,loser_ioc,loser_age,score,best_of,round,minutes\n' +
-  '1,Wimbledon,Grass,128,G,20080706,99,1,1,,Roger Federer,R,,,,2,2,,Rafael Nadal,L,,,,6-4 6-4 6-7(5) 6-7(8) 9-7,5,F,288\n' +
+  '1,Wimbledon,Grass,128,G,20080706,99,1,1,,Roger Federer,R,,SUI,,2,2,,Rafael Nadal,L,,ESP,,6-4 6-4 6-7(5) 6-7(8) 9-7,5,F,288\n' +
   '2,Wimbledon,Grass,128,G,20080706,80,2,2,,Rafael Nadal,L,,,,10,10,,N N,L,,,,7-6 6-4,3,SF,140\n' +
   '3,ATP Masters 1000 Miami,Hard,96,M,20100330,33,1,1,,Novak Djokovic,R,,,,3,3,,Stan Wawrinka,R,,,,6-2 6-3,3,F,75\n' +
   '4,US Open,Hard,128,G,19910908,50,9,9,,Jimmy Connors,L,,,,20,20,,X Y,R,,,,6-4 6-2,3,R32,90\n' +
@@ -449,6 +451,8 @@ function selftest() {
   R(c16 && c16.report.wr === 35 && c16.report.lr === 2 && c16.report.surf === '硬地',
     '2016 Miami：赛前排名 35 vs 2 抓取正确（爆冷素材）');
   R(c07w && c07w.report.form[0] === 'WL', '2007 温网：费德勒赛前近况 WL');
+  R(c08 && c08.report.ioc[0] === 'SUI' && c08.report.ioc[1] === 'ESP', '2008 温网：双方国籍 SUI/ESP 抓取正确');
+  R(c16 && c16.report.ioc[0] === '' && c16.report.ioc[1] === '', '2016 Miami：空 IOC 列容错为空串');
   return pass;
 }
 
