@@ -82,6 +82,28 @@ function buildOrder(filter) {
 }
 
 /* ---------------- 渲染 ---------------- */
+/* 战报区块：赛前头对头 + 近 3 次交手 + 本届开赛前当年战绩 */
+function reportHtml(card) {
+  const rp = card.report;
+  const a = (card.players && card.players[0]) || '胜者';
+  const b = (card.players && card.players[1]) || '对手';
+  const lines = [];
+  if (rp.prev[0] + rp.prev[1] === 0) {
+    lines.push('⚔️ 巡回赛首遇，两人此前从无交手');
+  } else {
+    lines.push('⚔️ 赛前交手：' + a + ' ' + rp.prev[0] + ' – ' + rp.prev[1] + ' ' + b +
+      '（本场后 ' + (rp.prev[0] + 1) + ' – ' + rp.prev[1] + '）');
+  }
+  for (const e of rp.recent) {
+    lines.push('· ' + e.y + ' ' + e.ev + ' ' + e.r + '：' + e.win + (e.s ? ' ' + e.s : '') + ' 胜');
+  }
+  const sea = (p, o) => (o.w + o.l === 0) ? (p + ' 赛季首站') :
+    (p + ' ' + o.w + '胜' + o.l + '负' + (o.t ? '·' + o.t + '冠' : ''));
+  lines.push('📆 本届开赛前：' + sea(a, rp.sW) + ' ｜ ' + sea(b, rp.sL));
+  return '<div class="card-report"><div class="rp-title">📊 战报 · 交手与赛季</div>' +
+    lines.map((l) => '<div class="rp-line">' + esc(l) + '</div>').join('') + '</div>';
+}
+
 function cardHtml(card, i, total) {
   const t = CARD_TYPES[card.type];
   const isToday = card.type === 'history' && card.date === todayMD();
@@ -131,6 +153,10 @@ function cardHtml(card, i, total) {
     detailBody += '<div class="card-highlights">' +
       hls.split('\n').map(l => '<div class="hl-line">' + esc(l) + '</div>').join('') +
     '</div>';
+  }
+  // 战报：头对头交手记录 + 当年战绩（生成器赛果卡自动附带）
+  if (card.report) {
+    detailBody += reportHtml(card);
   }
   if (card.type === 'news') {
     if (card.source) detailBody += '<p class="detail-meta">📰 来源：' + esc(card.source) + '</p>';

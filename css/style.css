@@ -204,6 +204,23 @@ body {
   color: var(--text);
 }
 .hl-line + .hl-line { margin-top: 4px; }
+.card-report {
+  background: rgba(125,211,252,.07);
+  border: 1px solid var(--panel-border);
+  border-left: 3px solid #7dd3fc;
+  border-radius: 14px;
+  padding: 14px 18px; margin-bottom: 26px;
+}
+.rp-title {
+  font-size: 12.5px; letter-spacing: 2px; font-weight: 700;
+  color: #7dd3fc; margin-bottom: 8px;
+}
+.rp-line {
+  font-size: clamp(13.5px, 2.1vw, 16px);
+  line-height: 1.75;
+  color: var(--text);
+}
+.rp-line + .rp-line { margin-top: 2px; }
 .detail-meta { font-size: 13px; color: var(--muted); margin-bottom: 22px; }
 .answer-reveal {
   display: inline-block;

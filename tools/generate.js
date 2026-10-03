@@ -8,7 +8,9 @@
  *   CSV 直接链接（CDN）：https://cdn.jsdelivr.net/gh/JeffSackmann/<repo>@master/<file>
  *
  * 用法：
- *   node tools/generate.js            # 联网，下载并生成 data/generated.js
+ *   node tools/generate.js            # 生成 data/generated.js（历史年份走 .cache 本地缓存，仅当年重新下载）
+ *   node tools/generate.js --refresh  # 忽略缓存，重新下载全部年份
+ *   node tools/generate.js --refresh-year 2024  # 只重新下载某一年
  *   node tools/generate.js --selftest # 离线，用内置样例验证选卡逻辑
  *   node tools/generate.js --out X.js # 指定输出文件
  * ============================================================ */
@@ -21,6 +23,19 @@ const OUT = path.join(__dirname, '..', 'data', 'generated.js');
 const FIRST_YEAR = 1968;
 const MAX_YEAR = new Date().getFullYear();
 const PER_DAY = 3; // 每天保底 3 张
+
+/* ---------- 本地缓存：历史年份数据不变，下载一次永久复用 ---------- */
+const CACHE_DIR = path.join(__dirname, '..', '.cache');
+const FLAGS = process.argv.slice(2);
+function cachePath(prefix, y) {
+  return path.join(CACHE_DIR, prefix, prefix + '_matches_' + y + '.csv');
+}
+function shouldFetch(y) {
+  if (FLAGS.includes('--refresh')) return true;            // 强制全部重新下载
+  if (y >= MAX_YEAR) return true;                          // 今年数据持续更新
+  const i = FLAGS.indexOf('--refresh-year');              // 单独刷新某一年
+  return i >= 0 && Number(FLAGS[i + 1]) === y;
+}
 
 /* ---------- 著名球员中文名映射 ---------- */
 const CN_NAME = {
@@ -157,8 +172,69 @@ function matchHighlights(m, wing) {
   return h.join('\n');
 }
 
+/* ---------- 球员名规范化 / 交手配对键 ---------- */
+function normP(tour, name) {
+  return tour + '|' + String(name).trim().toLowerCase().replace(/\s+/g, ' ');
+}
+function pairKey(tour, a, b) {
+  const x = normP(tour, a), y = normP(tour, b);
+  return x <= y ? x + '||' + y : y + '||' + x;
+}
+const ROUND_CN = {
+  F: '决赛', SF: '半决赛', DF: '季军赛', QF: '1/4 决赛', R16: '1/8 决赛', R32: '1/16 决赛',
+  R64: '1/32 决赛', R128: '1/64 决赛', R256: '1/128 决赛', RR: '小组赛',
+};
+function roundCn(r) { const k = String(r).trim().toUpperCase(); return ROUND_CN[k] || k; }
+
+/* ---------- 全量比赛索引（头对头 / 赛季战绩 / 冠军数） ---------- */
+function buildIndexes(matches) {
+  const meetings = new Map(), log = new Map(), titles = new Map();
+  const push = (map, key, val) => { let a = map.get(key); if (!a) map.set(key, a = []); a.push(val); };
+  for (const m of matches) {
+    m.dint = Number(String(m.year) + m.mmdd.replace('-', '')); // YYYYMMDD 整数，用于时间先后
+    const wk = normP(m.tour, m.wname), lk = normP(m.tour, m.lname);
+    push(meetings, pairKey(m.tour, m.wname, m.lname),
+      { d: m.dint, wid: wk, year: m.year, round: m.round, score: m.score, tname: m.tname });
+    push(log, wk, { d: m.dint, w: 1, year: m.year });
+    push(log, lk, { d: m.dint, w: 0, year: m.year });
+    if (String(m.round).trim().toUpperCase() === 'F') push(titles, wk, { d: m.dint, year: m.year });
+  }
+  const byDate = (a, b) => a.d - b.d;
+  for (const a of meetings.values()) a.sort(byDate);
+  for (const a of log.values()) a.sort(byDate);
+  for (const a of titles.values()) a.sort(byDate);
+  return { meetings, log, titles };
+}
+
+/* ---------- 本场战报：头对头 + 本届赛前的当年战绩 ---------- */
+function cardReport(idx, m) {
+  const wk = normP(m.tour, m.wname), lk = normP(m.tour, m.lname);
+  const arr = idx.meetings.get(pairKey(m.tour, m.wname, m.lname)) || [];
+  let pw = 0, pl = 0;
+  const hist = [];
+  for (const e of arr) {
+    if (e.d >= m.dint) break;               // 只统计本届赛事开始之前的交手
+    if (e.wid === wk) pw++; else pl++;
+    hist.push(e);
+  }
+  const season = (pk) => {
+    let w = 0, l = 0, t = 0;
+    for (const e of (idx.log.get(pk) || [])) { if (e.d >= m.dint) break; if (e.year === m.year) { if (e.w) w++; else l++; } }
+    for (const e of (idx.titles.get(pk) || [])) { if (e.d >= m.dint) break; if (e.year === m.year) t++; }
+    return { w, l, t };
+  };
+  return {
+    prev: [pw, pl],  // 赛前交手 [本卡胜者赢, 对手赢]
+    recent: hist.slice(-3).reverse().map((e) => ({
+      y: e.year, ev: tourName(e.tname), r: roundCn(e.round),
+      win: cn(e.wid.split('|')[1]), s: e.score || '',
+    })),
+    sW: season(wk), sL: season(lk),
+  };
+}
+
 /* ---------- 将比赛转为卡片 ---------- */
-function matchToCard(m) {
+function matchToCard(m, idx) {
   const wing = cn(m.wname), ling = cn(m.lname);
   const tcn = tourName(m.tname);
   const r = String(m.round).trim().toUpperCase();
@@ -183,11 +259,14 @@ function matchToCard(m) {
     id: 'gen-' + m.tour + '-' + m.year + m.mmdd.replace('-', '') + '-' + m.wname.toLowerCase().replace(/[^a-z]/g, ''),
     type: 'history', date: m.mmdd, year: m.year, title, teaser, detail,
     highlights: matchHighlights(m, wing),
+    players: [wing, ling],
+    report: idx ? cardReport(idx, m) : null,
   };
 }
 
 /* ---------- 核心选卡逻辑（可离线单测） ---------- */
 function selectCards(matches) {
+  const idx = buildIndexes(matches);
   // 按 MM-DD 分组，组内按"重要性"降序：级别分 > 轮次分 > 知名球员加分 > 年份
   const groups = {};
   for (const m of matches) (groups[m.mmdd] = groups[m.mmdd] || []).push(m);
@@ -197,9 +276,17 @@ function selectCards(matches) {
   }
   const days = Object.keys(groups).sort();
   const cards = [];
+  const usedIds = new Map();
   for (const d of days) {
     groups[d].sort((a, b) => score(b) - score(a) || b.year - a.year);
-    for (let i = 0; i < groups[d].length && i < PER_DAY; i++) cards.push(matchToCard(groups[d][i]));
+    for (let i = 0; i < groups[d].length && i < PER_DAY; i++) {
+      const card = matchToCard(groups[d][i], idx);
+      // 同一球员同一赛事多场会撞 ID，追加序号去重
+      const n = (usedIds.get(card.id) || 0) + 1;
+      usedIds.set(card.id, n);
+      if (n > 1) card.id += '-' + n;
+      cards.push(card);
+    }
   }
   return cards;
 }
@@ -237,12 +324,29 @@ async function loadRepo(repo) {
       `https://raw.githubusercontent.com/JeffSackmann/${repo}/master/${prefix}_matches_${y}.csv`,
     ];
     let text = null;
-    const errs = [];
-    for (const url of urls) {
-      try { text = await fetchText(url); break; }
-      catch (e) { errs.push(e.message); }
+    const cp = cachePath(prefix, y);
+    let cached = false;
+    if (!shouldFetch(y) && fs.existsSync(cp)) {
+      text = fs.readFileSync(cp, 'utf8');
+      cached = true;
+    } else {
+      const errs = [];
+      for (const url of urls) {
+        try { text = await fetchText(url); break; }
+        catch (e) { errs.push(e.message); }
+      }
+      if (text == null && fs.existsSync(cp)) {          // 网络失败回退缓存
+        text = fs.readFileSync(cp, 'utf8'); cached = true;
+        process.stderr.write('  ' + y + ' … 下载失败，改用缓存\n');
+      }
+      if (text != null) {                               // 成功后写入缓存
+        try {
+          fs.mkdirSync(path.dirname(cp), { recursive: true });
+          fs.writeFileSync(cp, text, 'utf8');
+        } catch (e) { /* 只读环境下跳过缓存写入 */ }
+      }
     }
-    if (text == null) { process.stderr.write('  跳过 ' + y + '：' + errs.join(' | ') + '\n'); continue; }
+    if (text == null) { process.stderr.write('  跳过 ' + y + '（无缓存且下载失败）\n'); continue; }
     const rows = parseCSV(text);
     const header = rows[0];
     if (!header || header.length < 26) continue; // 列结构不符则跳过
@@ -253,7 +357,7 @@ async function loadRepo(repo) {
       const m = rowToMatch(r, tour);
       if (m) matches.push(m);
     }
-    process.stderr.write('  ' + y + ' … ' + (rows.length - 1) + ' 场\n');
+    process.stderr.write('  ' + y + ' … ' + (rows.length - 1) + ' 场' + (cached ? '（缓存）' : '') + '\n');
   }
   return matches;
 }
@@ -265,7 +369,11 @@ const FIXTURE = '' +
   '2,Wimbledon,Grass,128,G,20080706,80,2,2,,Rafael Nadal,L,,,,10,10,,N N,L,,,,7-6 6-4,3,SF,140\n' +
   '3,ATP Masters 1000 Miami,Hard,96,M,20100330,33,1,1,,Novak Djokovic,R,,,,3,3,,Stan Wawrinka,R,,,,6-2 6-3,3,F,75\n' +
   '4,US Open,Hard,128,G,19910908,50,9,9,,Jimmy Connors,L,,,,20,20,,X Y,R,,,,6-4 6-2,3,R32,90\n' +
-  '5,Roland Garros,Clay,128,G,20110604,44,6,6,,Na Li,R,,,,7,7,,F Schiavone,R,,,,6-4 7-6(0),3,F,120\n';
+  '5,Roland Garros,Clay,128,G,20110604,44,6,6,,Na Li,R,,,,7,7,,F Schiavone,R,,,,6-4 7-6(0),3,F,120\n' +
+  '6,Wimbledon,Grass,128,G,20060626,99,1,1,,Roger Federer,R,,,,2,2,,Rafael Nadal,L,,,,6-3 6-1 6-4,5,F,114\n' +
+  '7,Roland Garros,Clay,128,G,20070527,99,2,2,,Rafael Nadal,L,,,,1,1,,Roger Federer,R,,,,6-3 4-6 6-3 6-4,5,F,153\n' +
+  '8,Wimbledon,Grass,128,G,20070625,99,1,1,,Roger Federer,R,,,,2,2,,Rafael Nadal,L,,,,7-6(7) 4-6 7-6(3) 2-6 6-2,5,F,207\n' +
+  '9,Wimbledon,Grass,128,G,20070625,60,1,1,,Roger Federer,R,,,,5,5,,David Nalbandian,L,,,,6-4 6-3,3,R16,88\n';
 function selftest() {
   const rows = parseCSV(FIXTURE).slice(1).map((r) => rowToMatch(r, 'atp')).filter(Boolean);
   const cards = selectCards(rows);
@@ -276,7 +384,29 @@ function selftest() {
   console.log('每天卡片数：', JSON.stringify(perDay));
   const bad = cards.filter((c) => !c.date || !c.title || !c.detail);
   console.log(bad.length ? '有坏数据' : '全部有效');
-  return bad.length === 0;
+
+  // ---------- 战报断言（样例中 2006 温网 / 2007 法网 / 2007 温网 三场费纳决） ----------
+  let pass = bad.length === 0;
+  const R = (cond, name) => { console.log((cond ? '  ✔ ' : '  ✘ ') + name); if (!cond) pass = false; };
+  const find = (y, key) => cards.find((c) => c.year === y && c.title.indexOf(key) >= 0);
+  const c08 = find(2008, '夺得');
+  const c07rg = find(2007, '夺得 法国网球公开赛');
+  const c07w = find(2007, '夺得 温布尔登');
+  R(cards.every((c) => c.report), '所有卡片都带战报');
+  R(c08 && c08.report.prev[0] === 2 && c08.report.prev[1] === 1 && c08.report.recent.length === 3,
+    '2008 决赛：赛前交手 2-1，含近 3 次明细');
+  R(c07rg && c07rg.report.prev[0] === 0 && c07rg.report.prev[1] === 1,
+    '2007 法网（纳达尔胜）：赛前交手 0-1');
+  R(c07w && c07w.report.prev[0] === 1 && c07w.report.prev[1] === 1,
+    '2007 温网（费德勒胜）：赛前交手 1-1');
+  R(c07w && c07w.report.sW.w === 0 && c07w.report.sW.l === 1,
+    '2007 温网：费德勒赛季（该赛前）0 胜 1 负——即法网决赛负');
+  R(c07w && c07w.report.recent.length === 2, '2007 温网：近 2 次交手明细');
+  // ID 去重：2007 温网费德勒两轮同基础 ID，应出现 -2 后缀且整体无重复
+  const idset = new Set(cards.map((c) => c.id));
+  R(idset.size === cards.length, 'ID 去重后全量唯一');
+  R(cards.some((c) => /-2$/.test(c.id)), '同球员同赛事多场触发 -2 后缀');
+  return pass;
 }
 
 /* ---------- 主流程 ---------- */
@@ -294,6 +424,15 @@ async function main() {
   console.log('共解析比赛：', all.length);
 
   const cards = selectCards(all);
+  // 数据自检：ID 唯一 + 战报字段形状
+  {
+    const seen = new Set();
+    for (const c of cards) { if (!seen.add(c.id)) throw new Error('存在重复 ID: ' + c.id); }
+    const bad = cards.filter((c) => !c.report || !Array.isArray(c.report.prev) || c.report.prev.length !== 2 ||
+      !Array.isArray(c.report.recent) || c.report.recent.length > 3 || !c.report.sW || !c.report.sL);
+    if (bad.length) throw new Error('战报字段异常: ' + (bad[0] && bad[0].id));
+    console.log('✔ ID 唯一性与战报字段自检通过（' + cards.length + ' 张）');
+  }
   // 覆盖度检查：理论上应覆盖全部 366 个日期
   const days = new Set(cards.map((c) => c.date));
   const missing = [];
