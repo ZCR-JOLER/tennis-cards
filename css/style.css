@@ -71,6 +71,10 @@ body {
 }
 .feed::-webkit-scrollbar { display: none; }
 
+/* 虚拟滚动占位卡：保留类型底色，水合时由 JS 移除 .ph */
+.card.ph { display: flex; align-items: center; justify-content: center; content-visibility: auto; }
+.card.ph::after { content: '🎾'; font-size: 44px; opacity: .14; }
+
 .card { height: 100%; scroll-snap-align: start; scroll-snap-stop: always; position: relative; }
 
 /* ---------- 卡内横向滑动（详情/答案） ---------- */
@@ -191,6 +195,7 @@ body {
 .detail-text {
   font-size: clamp(15.5px, 2.6vw, 19px);
   line-height: 2.0;
+  white-space: pre-line; /* 新闻详情含机翻/原文/元信息多段 */
   color: rgba(242,245,249,.92);
   margin-bottom: 26px;
 }

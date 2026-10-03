@@ -12,7 +12,7 @@ const ROOT = path.join(__dirname, '..');
 /* ---------- 最小 DOM 桩 ---------- */
 function makeEl(tag) {
   return {
-    tagName: tag || 'div', _html: '', style: {}, dataset: {},
+    tagName: tag || 'div', _html: '', style: {}, dataset: {}, children: [],
     clientHeight: 800, clientWidth: 400, scrollTop: 0,
     classList: { add() {}, remove() {}, toggle() {}, contains() { return false; } },
     addEventListener() {}, querySelector() { return makeEl(); }, querySelectorAll() { return []; },
@@ -133,8 +133,10 @@ try {
   check(kh.includes('国家网球') && kh.includes('🇨🇭') && kh.includes('🇪🇸'), '国家网球板块与国旗渲染');
   const KB = globalThis.window.TENNIS_KB;
   check(!!(KB && KB.cities && KB.countries && !KB.rules), '知识库结构：有当地志/国家网球，无冷知识');
-  // 整体渲染（renderFeed）产出的 feed 里也应能扫到联想面板
-  check(feedEl.innerHTML.includes('assoc-panel'), '全量 feed 渲染含联想面板');
+  // 虚拟滚动：feed 全量应为占位块，完整卡片只存在于水合窗口内
+  const phCount = (feedEl.innerHTML.match(/class="card ph"/g) || []).length;
+  check(phCount >= CARDS.length - 5, '虚拟滚动渲染生效（占位 ' + phCount + '/' + CARDS.length + '）');
+  check(!globalThis.__tkCardHtml(real, 0, 1).includes('class="card ph"'), '水合后为完整卡片而非占位');
 } catch (e) {
   check(false, '联想冒烟测试（异常：' + e.message + '）');
 }

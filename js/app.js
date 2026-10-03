@@ -324,7 +324,7 @@ function knowHtml(card, secs) {
   return '<div class="panel know-panel"><div class="panel-inner">' + inner + '</div></div>';
 }
 
-function cardHtml(card, i, total) {
+function cardInnerHtml(card, i, total) {
   const t = CARD_TYPES[card.type];
   const isQuiz = card.type === 'quiz';
   const know = knowFor(card);
@@ -395,8 +395,7 @@ function cardHtml(card, i, total) {
   detailBody += '<button class="back-btn" data-act="back">← 左滑或点此返回原卡</button>';
 
   return '' +
-    '<section class="card" data-type="' + card.type + '" data-id="' + card.id + '" data-idx="' + i + '">' +
-      '<div class="hwrap">' +
+    '<div class="hwrap">' +
       (know.length ? knowHtml(card, know) : '') +
         '<div class="panel main-panel"><div class="panel-inner">' +
           badges + mainBody +
@@ -417,14 +416,18 @@ function cardHtml(card, i, total) {
             assocHtml(card, groups) +
           '</div></div>' : '') +
       '</div>' +
-      '<div class="counter">' + (i + 1) + ' / ' + total + '</div>' +
-    '</section>';
+      '<div class="counter">' + (i + 1) + ' / ' + total + '</div>';
+}
+function cardHtml(card, i, total) {
+  return '<section class="card" data-type="' + card.type + '" data-id="' + card.id + '" data-idx="' + i + '">' +
+    cardInnerHtml(card, i, total) + '</section>';
 }
 
 function renderFeed() {
   const feed = $('#feed');
   state.order = buildOrder(state.filter);
   state.idx = 0;
+  HYD = new Set();
 
   if (!state.order.length) {
     const emptyMsg = state.filter === 'history' ? '📅 今天没有网球史上的重大事件' :
@@ -434,20 +437,55 @@ function renderFeed() {
     updateProgress();
     return;
   }
-  feed.innerHTML = state.order.map((c, i) => cardHtml(c, i, state.order.length)).join('');
+  // 虚拟滚动：全部先渲染成占位块（保留类型底色与快照锚点），
+  // 只有当前 ±2 张水合成完整卡片——1261 张全量 DOM 正是此前卡顿/崩溃的根源
+  feed.innerHTML = state.order.map((c, i) =>
+    '<section class="card ph" data-type="' + c.type + '" data-id="' + c.id + '" data-idx="' + i + '"></section>').join('');
   feed.scrollTop = 0;
-  resetHwraps();
+  ensureWindow();
   observeCards();
   updateRail();
   updateProgress();
 }
-/* 横向视口初始定位到主卡（百科面板在其左侧）；窗口尺寸变化时重新对齐 */
+
+/* ---------------- 水合窗口 ---------------- */
+const HYD_BUFFER = 2;
+let HYD = new Set();
+function cardElAt(i) { return document.querySelector('.card[data-idx="' + i + '"]'); }
+function hydrate(i) {
+  if (HYD.has(i)) return;
+  const el = cardElAt(i);
+  const c = state.order[i];
+  if (!el || !c) return;
+  el.innerHTML = cardInnerHtml(c, i, state.order.length);
+  el.classList.remove('ph');
+  HYD.add(i);
+  alignHwrap(el);
+}
+function dehydrate(i) {
+  if (!HYD.has(i)) return;
+  const el = cardElAt(i);
+  if (el) {
+    el.innerHTML = '';
+    el.classList.add('ph');
+    HYD.delete(i);
+  }
+}
+function ensureWindow() {
+  const n = state.order.length;
+  for (let i = Math.max(0, state.idx - HYD_BUFFER); i <= Math.min(n - 1, state.idx + HYD_BUFFER); i++) hydrate(i);
+  for (const i of Array.from(HYD)) if (Math.abs(i - state.idx) > HYD_BUFFER + 2) dehydrate(i);
+}
+function alignHwrap(cardEl) {
+  const h = cardEl && cardEl.querySelector('.hwrap');
+  if (!h || !h.clientWidth) return;
+  const kids = Array.prototype.slice.call(h.children);
+  const mi = kids.findIndex((p) => p.classList && p.classList.contains('main-panel'));
+  if (mi > 0) h.scrollLeft = mi * h.clientWidth;
+}
+/* 窗口尺寸变化时把已水合卡片的横向视口重新对齐到主卡 */
 function resetHwraps() {
-  document.querySelectorAll('.hwrap').forEach((h) => {
-    const kids = Array.prototype.slice.call(h.children);
-    const mi = kids.findIndex((p) => p.classList && p.classList.contains('main-panel'));
-    if (mi > 0) h.scrollLeft = mi * h.clientWidth;
-  });
+  document.querySelectorAll('.card:not(.ph) .hwrap').forEach((h) => alignHwrap(h.parentElement));
 }
 window.addEventListener('resize', resetHwraps);
 
@@ -458,7 +496,11 @@ function observeCards() {
   observer = new IntersectionObserver((entries) => {
     for (const en of entries) {
       if (en.isIntersecting && en.intersectionRatio >= 0.55) {
-        state.idx = Number(en.target.dataset.idx);
+        const idx = Number(en.target.dataset.idx);
+        if (idx !== state.idx) {
+          state.idx = idx;
+          ensureWindow();
+        }
         updateProgress();
         updateRail();
       }
@@ -531,6 +573,8 @@ function jumpToCard(fromCardEl, id) {
   }
   if (fromCardEl) goPanel(fromCardEl, panelPos(fromCardEl, 'main-panel'));
   if (pos < 0) { toast('关联卡片未找到'); return; }
+  state.idx = pos;
+  ensureWindow();
   const feed = $('#feed');
   feed.scrollTo({ top: pos * feed.clientHeight, behavior: 'smooth' });
   const el = document.querySelector('.card[data-idx="' + pos + '"]');
