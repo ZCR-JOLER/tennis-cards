@@ -140,7 +140,14 @@ function rowToMatch(r, tour) {
   const minutes = Number(r[26]) || 0;
   const w_ace = Number(r[27]) || 0;
   const l_ace = Number(r[36]) || 0;
-  return { tour, tname, level, year, mmdd: mm + '-' + dd, wname, lname, score, round, minutes, w_ace, l_ace };
+  // 扩展字段：场地(2) 种子(8/16) 入场身份(9/17) 年龄(14/22) 排名(45/47)
+  const pInt = (v) => { const s = String(v == null ? '' : v).trim(); return /^\d+$/.test(s) && Number(s) > 0 ? Number(s) : null; };
+  return { tour, tname, level, year, mmdd: mm + '-' + dd, wname, lname, score, round, minutes, w_ace, l_ace,
+    surf: String(r[2] || '').trim(),
+    wseed: pInt(r[8]), lseed: pInt(r[16]),
+    went: String(r[9] || '').trim().toUpperCase(), lent: String(r[17] || '').trim().toUpperCase(),
+    wage: pInt(Math.floor(Number(r[14]) || 0) || ''), lage: pInt(Math.floor(Number(r[22]) || 0) || ''),
+    wr: pInt(r[45]), lr: pInt(r[47]) };
 }
 
 /* ---------- 从比分 / 统计生成精彩看点 ---------- */
@@ -185,6 +192,9 @@ const ROUND_CN = {
   R64: '1/32 决赛', R128: '1/64 决赛', R256: '1/128 决赛', RR: '小组赛',
 };
 function roundCn(r) { const k = String(r).trim().toUpperCase(); return ROUND_CN[k] || k; }
+const SURF_CN = { grass: '草地', clay: '红土', hard: '硬地', carpet: '地毯' };
+function surfCn(s) { return SURF_CN[String(s || '').trim().toLowerCase()] || ''; }
+function tourneyKey(name) { return String(name || '').trim().toLowerCase(); }
 
 /* ---------- 全量比赛索引（头对头 / 赛季战绩 / 冠军数） ---------- */
 function buildIndexes(matches) {
@@ -197,7 +207,8 @@ function buildIndexes(matches) {
       { d: m.dint, wid: wk, year: m.year, round: m.round, score: m.score, tname: m.tname });
     push(log, wk, { d: m.dint, w: 1, year: m.year });
     push(log, lk, { d: m.dint, w: 0, year: m.year });
-    if (String(m.round).trim().toUpperCase() === 'F') push(titles, wk, { d: m.dint, year: m.year });
+    if (String(m.round).trim().toUpperCase() === 'F')
+      push(titles, wk, { d: m.dint, year: m.year, tk: tourneyKey(m.tname), g: String(m.level).trim().toUpperCase() === 'G' });
   }
   const byDate = (a, b) => a.d - b.d;
   for (const a of meetings.values()) a.sort(byDate);
@@ -206,7 +217,7 @@ function buildIndexes(matches) {
   return { meetings, log, titles };
 }
 
-/* ---------- 本场战报：头对头 + 本届赛前的当年战绩 ---------- */
+/* ---------- 本场战报：头对头 + 当年战绩 + 背景信息 ---------- */
 function cardReport(idx, m) {
   const wk = normP(m.tour, m.wname), lk = normP(m.tour, m.lname);
   const arr = idx.meetings.get(pairKey(m.tour, m.wname, m.lname)) || [];
@@ -223,6 +234,21 @@ function cardReport(idx, m) {
     for (const e of (idx.titles.get(pk) || [])) { if (e.d >= m.dint) break; if (e.year === m.year) t++; }
     return { w, l, t };
   };
+  const isFinal = String(m.round).trim().toUpperCase() === 'F';
+  const isMajor = isFinal && String(m.level).trim().toUpperCase() === 'G';
+  const tk = tourneyKey(m.tname);
+  const cntHere = (pk) => { let c = 0; for (const e of (idx.titles.get(pk) || [])) { if (e.d >= m.dint) break; if (e.tk === tk) c++; } return c; };
+  const cntMajor = (pk) => { let c = 0; for (const e of (idx.titles.get(pk) || [])) { if (e.d >= m.dint) break; if (e.g) c++; } return c; };
+  const form = (pk) => {
+    const out = [];
+    for (const e of (idx.log.get(pk) || [])) { if (e.d >= m.dint) break; out.push(e.w ? 'W' : 'L'); if (out.length > 5) out.shift(); }
+    return out.join('');
+  };
+  const career = (pk) => {
+    let w = 0, l = 0;
+    for (const e of (idx.log.get(pk) || [])) { if (e.d >= m.dint) break; if (e.w) w++; else l++; }
+    return { w, l };
+  };
   return {
     prev: [pw, pl],  // 赛前交手 [本卡胜者赢, 对手赢]
     recent: hist.slice(-3).reverse().map((e) => ({
@@ -230,6 +256,15 @@ function cardReport(idx, m) {
       win: cn(e.wid.split('|')[1]), s: e.score || '',
     })),
     sW: season(wk), sL: season(lk),
+    rnd: roundCn(m.round), surf: surfCn(m.surf),
+    wr: m.wr, lr: m.lr,                     // 赛前世界排名
+    ws: m.wseed, ls: m.lseed, we: m.went, le: m.lent,  // 种子与入场身份
+    wa: m.wage, la: m.lage,                 // 年龄（岁）
+    tt: [cntHere(wk), cntHere(lk)],         // 赛前在本赛事夺冠次数
+    maj: [cntMajor(wk), cntMajor(lk)],      // 赛前生涯大满贯数
+    form: [form(wk), form(lk)],             // 赛前近五场 W/L
+    career: [career(wk), career(lk)],       // 赛前生涯总战绩
+    final: isFinal, major: isMajor,
   };
 }
 
@@ -373,7 +408,8 @@ const FIXTURE = '' +
   '6,Wimbledon,Grass,128,G,20060626,99,1,1,,Roger Federer,R,,,,2,2,,Rafael Nadal,L,,,,6-3 6-1 6-4,5,F,114\n' +
   '7,Roland Garros,Clay,128,G,20070527,99,2,2,,Rafael Nadal,L,,,,1,1,,Roger Federer,R,,,,6-3 4-6 6-3 6-4,5,F,153\n' +
   '8,Wimbledon,Grass,128,G,20070625,99,1,1,,Roger Federer,R,,,,2,2,,Rafael Nadal,L,,,,7-6(7) 4-6 7-6(3) 2-6 6-2,5,F,207\n' +
-  '9,Wimbledon,Grass,128,G,20070625,60,1,1,,Roger Federer,R,,,,5,5,,David Nalbandian,L,,,,6-4 6-3,3,R16,88\n';
+  '9,Wimbledon,Grass,128,G,20070625,60,1,1,,Roger Federer,R,,,,5,5,,David Nalbandian,L,,,,6-4 6-3,3,R16,88\n' +
+  '10,ATP Masters 1000 Miami,Hard,96,M,20160502,5,7,7,,Roberto Bautista Agut,R,,,,24,24,,Novak Djokovic,R,,,,6-2 6-3,3,F,80,,,,,,,,,,,,,,,,,,,35,,2\n';
 function selftest() {
   const rows = parseCSV(FIXTURE).slice(1).map((r) => rowToMatch(r, 'atp')).filter(Boolean);
   const cards = selectCards(rows);
@@ -406,6 +442,13 @@ function selftest() {
   const idset = new Set(cards.map((c) => c.id));
   R(idset.size === cards.length, 'ID 去重后全量唯一');
   R(cards.some((c) => /-2$/.test(c.id)), '同球员同赛事多场触发 -2 后缀');
+  // 扩展背景字段
+  R(c08 && c08.report.tt[0] === 2 && c08.report.maj[0] === 2 && c08.report.final && c08.report.major,
+    '2008 温网：此前 2 次在此夺冠、2 座大满贯，识别为大满贯决赛');
+  const c16 = find(2016, 'Miami');
+  R(c16 && c16.report.wr === 35 && c16.report.lr === 2 && c16.report.surf === '硬地',
+    '2016 Miami：赛前排名 35 vs 2 抓取正确（爆冷素材）');
+  R(c07w && c07w.report.form[0] === 'WL', '2007 温网：费德勒赛前近况 WL');
   return pass;
 }
 

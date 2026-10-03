@@ -101,5 +101,22 @@ try {
   check(false, '战报渲染冒烟测试（异常：' + e.message + '）');
 }
 
+// ---------- 联想三屏结构冒烟：真实赛果卡应含 main/detail/assoc 三面板 ----------
+try {
+  const real = CARDS.find((c) => c.report && c.players && c.players.length === 2 && c.year);
+  check(!!real, '存在可用于联想的真实赛果卡');
+  if (real) {
+    const h = globalThis.__tkCardHtml(real, 0, 1);
+    const panels = (h.match(/class="panel /g) || []).length;
+    check(h.includes('assoc-panel') && panels === 3, '联想第三面板已挂载（面板数=' + panels + '）');
+    check(h.includes('data-act="jump"'), '联想条目含可跳转的关联卡片');
+    check(h.includes('跨越时空'), '联想标题渲染');
+  }
+  // 整体渲染（renderFeed）产出的 feed 里也应能扫到联想面板
+  check(feedEl.innerHTML.includes('assoc-panel'), '全量 feed 渲染含联想面板');
+} catch (e) {
+  check(false, '联想冒烟测试（异常：' + e.message + '）');
+}
+
 console.log(failed === 0 ? '\n✅ 全部通过' : '\n❌ ' + failed + ' 项未通过');
 process.exit(failed === 0 ? 0 : 1);

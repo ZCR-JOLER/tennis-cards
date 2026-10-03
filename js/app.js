@@ -3,9 +3,9 @@
 /* ============================================================
  * 网球一刻 · 交互逻辑
  *  - 竖向滑屏切换卡片（TikTok 式）
- *  - 卡内右滑查看详情 / 竞猜答案
+ *  - 卡内右滑两级：原卡 → 战报详情 → 🔗 联想网络（左滑逐级返回）
  *  - 竞猜点选作答、喜欢 / 收藏 / 分享（localStorage 持久化）
- *  - 桌面键盘 ↑↓ 切换、→ 看详情、← 返回
+ *  - 桌面键盘 ↑↓ 切换、→ 下一屏、← 上一屏
  * ============================================================ */
 
 // 注意：不能用 const { CARDS } = window.CONTENT 解构——
@@ -82,33 +82,180 @@ function buildOrder(filter) {
 }
 
 /* ---------------- 渲染 ---------------- */
-/* 战报区块：赛前头对头 + 近 3 次交手 + 本届开赛前当年战绩 */
+/* 战报区块：交手 / 排名与身份 / 赛季与状态 / 头衔背景（新字段缺省时自动跳过） */
 function reportHtml(card) {
   const rp = card.report;
   const a = (card.players && card.players[0]) || '胜者';
   const b = (card.players && card.players[1]) || '对手';
-  const lines = [];
+  const secs = [];
+  const g = (title, lines) => { if (lines.length) secs.push({ title, lines }); };
+
+  /* ① 交手记录 */
+  const h2h = [];
   if (rp.prev[0] + rp.prev[1] === 0) {
-    lines.push('⚔️ 巡回赛首遇，两人此前从无交手');
+    h2h.push('⚔️ 巡回赛首遇，两人此前从无交手');
   } else {
-    lines.push('⚔️ 赛前交手：' + a + ' ' + rp.prev[0] + ' – ' + rp.prev[1] + ' ' + b +
+    h2h.push('⚔️ 赛前交手：' + a + ' ' + rp.prev[0] + ' – ' + rp.prev[1] + ' ' + b +
       '（本场后 ' + (rp.prev[0] + 1) + ' – ' + rp.prev[1] + '）');
   }
   for (const e of rp.recent) {
-    lines.push('· ' + e.y + ' ' + e.ev + ' ' + e.r + '：' + e.win + (e.s ? ' ' + e.s : '') + ' 胜');
+    h2h.push('· ' + e.y + ' ' + e.ev + ' ' + e.r + '：' + e.win + (e.s ? ' ' + e.s : '') + ' 胜');
   }
+  g('🤝 交手脉络', h2h);
+
+  /* ② 对阵背景：场地/排名/种子/年龄 */
+  const bg = [];
+  const tag = [];
+  if (rp.rnd) tag.push(rp.rnd);
+  if (rp.surf) tag.push(rp.surf);
+  if (tag.length) bg.push('🏟 本场：' + tag.join(' · '));
+  if (rp.wr && rp.lr) {
+    let s = '🏅 赛前排名：' + a + ' 第 ' + rp.wr + ' ｜ ' + b + ' 第 ' + rp.lr;
+    if (rp.wr >= rp.lr + 5) s += '（💥 下克上：排名相差 ' + (rp.wr - rp.lr) + ' 位）';
+    bg.push(s);
+  }
+  const who = (seed, entry) =>
+    entry === 'Q' ? '资格赛' : entry === 'WC' ? '外卡' : entry === 'LL' ? '幸运落败者'
+      : entry === 'PR' ? '保护排名' : seed ? (seed === 1 ? '头号种子' : seed + ' 号种子') : '非种子';
+  if (rp.ws || rp.ls || rp.we || rp.le) {
+    bg.push('🎟 身份：' + a + ' ' + who(rp.ws, rp.we) + ' ｜ ' + b + ' ' + who(rp.ls, rp.le));
+  }
+  if (rp.wa && rp.la) bg.push('🎂 年龄：' + a + ' ' + rp.wa + ' 岁 ｜ ' + b + ' ' + rp.la + ' 岁');
+  g('⚖️ 对阵背景', bg);
+
+  /* ③ 赛季与状态 */
+  const season = [];
   const sea = (p, o) => (o.w + o.l === 0) ? (p + ' 赛季首站') :
     (p + ' ' + o.w + '胜' + o.l + '负' + (o.t ? '·' + o.t + '冠' : ''));
-  lines.push('📆 本届开赛前：' + sea(a, rp.sW) + ' ｜ ' + sea(b, rp.sL));
-  return '<div class="card-report"><div class="rp-title">📊 战报 · 交手与赛季</div>' +
-    lines.map((l) => '<div class="rp-line">' + esc(l) + '</div>').join('') + '</div>';
+  season.push('📆 本届开赛前：' + sea(a, rp.sW) + ' ｜ ' + sea(b, rp.sL));
+  if (rp.form && ((rp.form[0] || '').length >= 3 || (rp.form[1] || '').length >= 3)) {
+    season.push('📈 近五场：' + a + ' ' + (rp.form[0] || '—') + ' ｜ ' + b + ' ' + (rp.form[1] || '—') +
+      '（W 胜 / L 负）');
+  }
+  if (rp.career && (rp.career[0] || rp.career[1])) {
+    season.push('🎾 生涯巡回赛战绩（赛前）：' + a + ' ' + rp.career[0].w + '胜' + rp.career[0].l + '负 ｜ ' +
+      b + ' ' + rp.career[1].w + '胜' + rp.career[1].l + '负');
+  }
+  g('📊 状态盘点', season);
+
+  /* ④ 头衔背景 */
+  const bg2 = [];
+  if (rp.tt && (rp.tt[0] || rp.tt[1])) {
+    const t = (p, n) => p + ' 此前 ' + n + ' 次在这项赛事登顶';
+    bg2.push('👑 本赛事：' + [t(a, rp.tt[0]), t(b, rp.tt[1])].filter((x, i) => (rp.tt[i] > 0)).join(' ｜ '));
+  }
+  if (rp.maj && (rp.maj[0] || rp.maj[1] || rp.major)) {
+    const x = rp.major ? (rp.maj[0] + 1) : rp.maj[0];
+    let s = '🏆 生涯大满贯：' + a + ' ' + x + ' 座 ｜ ' + b + ' ' + rp.maj[1] + ' 座';
+    if (rp.major && x >= 3) s += '（' + a + ' 正在书写传奇）';
+    bg2.push(s);
+  }
+  g('👑 头衔坐标', bg2);
+
+  return '<div class="card-report"><div class="rp-title">📊 战报 · 情报全览</div>' +
+    secs.map((sec) =>
+      '<div class="rp-group"><div class="rp-gtitle">' + esc(sec.title) + '</div>' +
+      sec.lines.map((l) => '<div class="rp-line">' + esc(l) + '</div>').join('') + '</div>'
+    ).join('') + '</div>';
+}
+
+/* ---------------- 联想引擎（前端运行时在已加载卡片间现算，无需新数据） ---------------- */
+let REL = null;
+function relIndex() {
+  if (REL) return REL;
+  const byPlayer = new Map(), byRival = new Map(), byDate = new Map(), byYear = new Map();
+  const add = (m, k, c) => { let a = m.get(k); if (!a) m.set(k, a = []); a.push(c); };
+  const noPlayers = [];
+  for (const c of ALL_CARDS) {
+    if (c.players && c.players.length === 2) {
+      add(byPlayer, c.players[0], c); add(byPlayer, c.players[1], c);
+      add(byRival, [c.players[0], c.players[1]].sort().join('||'), c);
+    } else noPlayers.push(c);
+    if (c.date && c.year) add(byDate, c.date, c);
+    if (c.year) add(byYear, c.year, c);
+  }
+  return (REL = { byPlayer, byRival, byDate, byYear, noPlayers });
+}
+/* 取与 self 年份最接近的 k 张（谓词过滤），O(n) 免全量排序 */
+function topNearest(list, self, k, pass, dist) {
+  const out = [];
+  for (const c of list) {
+    if (c === self || !pass(c)) continue;
+    const v = dist(c);
+    if (out.length < k) { out.push(c); if (out.length === k) out.sort((a, b) => dist(a) - dist(b)); }
+    else if (v < dist(out[out.length - 1])) { out.pop(); out.push(c); out.sort((a, b) => dist(a) - dist(b)); }
+  }
+  return out;
+}
+function assocGroups(card) {
+  const R = relIndex();
+  const out = [];
+  const used = new Set([card.id]);
+  const take = (items, k) => {
+    const res = [];
+    for (const c of items) {
+      if (used.has(c.id)) continue;
+      used.add(c.id); res.push(c);
+      if (res.length >= k) break;
+    }
+    return res;
+  };
+  const yd = (c) => Math.abs((c.year || 0) - (card.year || 0));
+  if (card.players && card.players.length === 2) {
+    const [p1, p2] = card.players;
+    let more = take(topNearest(R.byPlayer.get(p1) || [], card, 6, () => true, yd), 4);
+    if (more.length < 2) { // 手工卡无 players 字段：标题/正文含该球员也算
+      for (const c of R.noPlayers) {
+        if (more.length >= 4) break;
+        if (!used.has(c.id) && (c.title.indexOf(p1) >= 0 || (c.detail || '').indexOf(p1) >= 0)) { used.add(c.id); more.push(c); }
+      }
+    }
+    if (more.length) out.push({ g: '👤 ' + p1 + ' 的其他时刻', items: more });
+    const rivals = take(topNearest(R.byRival.get([p1, p2].sort().join('||')) || [], card, 5,
+      (c) => c.year !== card.year || c.date !== card.date, yd), 3);
+    if (rivals.length) out.push({ g: '⚔️ 与 ' + p2 + ' 的其他交锋', items: rivals });
+  }
+  if (card.date && card.year) {
+    const sameDay = take(topNearest(R.byDate.get(card.date) || [], card, 4, (c) => c.year !== card.year, yd), 3);
+    if (sameDay.length) out.push({ g: '📅 历年 ' + mdLabel(card.date) + ' 还发生', items: sameDay });
+  }
+  if (card.year) {
+    const names = card.players || [];
+    const sameYear = take(topNearest(R.byYear.get(card.year) || [], card, 4,
+      (c) => !(names.length && c.players && (c.players.some((n) => names.includes(n)))), yd), 3);
+    if (sameYear.length) out.push({ g: '🗓️ ' + card.year + ' 年·库里同年', items: sameYear });
+  }
+  return out;
+}
+function hasAssoc(card) { // 渲染前的 O(1) 探测：决定要不要挂联想面板
+  const R = relIndex();
+  if (card.players && ((R.byPlayer.get(card.players[0]) || []).length > 1 ||
+      (R.byRival.get([card.players[0], card.players[1]].sort().join('||')) || []).length > 1)) return true;
+  if (card.date && (R.byDate.get(card.date) || []).length > 1) return true;
+  if (card.year && (R.byYear.get(card.year) || []).length > 1) return true;
+  return false;
+}
+function assocHtml(card, groups) {
+  let inner = '<div class="ac-title">🔗 联想 · 跨越时空</div>';
+  if (!groups.length) inner += '<p class="ac-empty">这张卡暂时没有库内强关联</p>';
+  for (const gr of groups) {
+    inner += '<div class="ac-group"><div class="ac-gname">' + esc(gr.g) + '</div>' +
+      gr.items.map((c) =>
+        '<button class="ac-item" data-act="jump" data-id="' + esc(c.id) + '">' +
+        '<span class="ac-year">' + (c.year || '—') + '</span>' +
+        '<span class="ac-txt">' + esc(c.title) + '</span>' +
+        '<span class="ac-go">⟶</span></button>'
+      ).join('') + '</div>';
+  }
+  inner += '<button class="back-btn" data-act="back2">← 左滑或点此返回战报</button>';
+  return '<div class="card-assoc">' + inner + '</div>';
 }
 
 function cardHtml(card, i, total) {
   const t = CARD_TYPES[card.type];
   const isToday = card.type === 'history' && card.date === todayMD();
   const isQuiz = card.type === 'quiz';
-  const hintText = isQuiz ? '右滑查看答案解析' : '右滑查看完整故事';
+  const hintText = isQuiz ? '右滑看答案与解析' : '右滑看完整故事 · 战报';
 
   let badges = '<div class="badges">' +
     '<span class="type-badge ' + t.badge + '">' + t.icon + ' ' + t.label + '</span>';
@@ -165,7 +312,13 @@ function cardHtml(card, i, total) {
   } else if (card.date) {
     detailBody += '<p class="detail-meta">📅 发生于 ' + (card.year ? card.year + ' 年 ' : '') + mdLabel(card.date) + '</p>';
   }
-  detailBody += '<button class="back-btn" data-act="back">← 左滑或点此返回</button>';
+  // 联想入口（有库内关联才挂第三面板；右滑两级：原卡 → 战报 → 联想）
+  const groups = hasAssoc(card) ? assocGroups(card) : [];
+  if (groups.length) {
+    detailBody += '<button class="swipe-hint assoc-hint" data-act="assoc">🔗 ' + esc(groups[0].g) +
+      ' 等联想 · 再右滑查看 <span>⟶</span></button>';
+  }
+  detailBody += '<button class="back-btn" data-act="back">← 左滑或点此返回原卡</button>';
 
   return '' +
     '<section class="card" data-type="' + card.type + '" data-id="' + card.id + '" data-idx="' + i + '">' +
@@ -179,6 +332,12 @@ function cardHtml(card, i, total) {
           '<h2 class="card-title">' + esc(card.title) + '</h2>' +
           detailBody +
         '</div></div>' +
+        (groups.length ?
+          '<div class="panel assoc-panel"><div class="panel-inner">' +
+            badges +
+            '<h2 class="card-title">' + esc(card.title) + '</h2>' +
+            assocHtml(card, groups) +
+          '</div></div>' : '') +
       '</div>' +
       '<div class="counter">' + (i + 1) + ' / ' + total + '</div>' +
     '</section>';
@@ -243,15 +402,44 @@ function nav(delta) {
   const feed = $('#feed');
   feed.scrollTo({ top: next * feed.clientHeight, behavior: 'smooth' });
 }
+/* 卡内面板逐级导航：0 原卡 / 1 战报 / 2 联想 */
+function goPanel(cardEl, i) {
+  const h = cardEl && cardEl.querySelector('.hwrap');
+  if (!h) return;
+  const max = h.querySelectorAll(':scope > .panel').length - 1;
+  i = Math.max(0, Math.min(max, i));
+  h.scrollTo({ left: i * h.clientWidth, behavior: 'smooth' });
+}
+function panelIdx(cardEl) {
+  const h = cardEl && cardEl.querySelector('.hwrap');
+  if (!h || !h.clientWidth) return 0;
+  return Math.round(h.scrollLeft / h.clientWidth);
+}
 function revealDetail() {
   const el = currentCardEl();
-  if (!el) return;
-  const h = el.querySelector('.hwrap');
-  h.scrollTo({ left: h.clientWidth, behavior: 'smooth' });
+  if (el) goPanel(el, 1);
+}
+function stepPanel(delta) { // 键盘/按钮：前进或后退一屏
+  const el = currentCardEl();
+  if (el) goPanel(el, panelIdx(el) + delta);
 }
 function backToMain(cardEl) {
-  const h = (cardEl || currentCardEl())?.querySelector('.hwrap');
-  if (h) h.scrollTo({ left: 0, behavior: 'smooth' });
+  goPanel(cardEl || currentCardEl(), 0);
+}
+/* 联想卡跳转：在当前卡组定位并滚过去，顺带把出发的卡复位 */
+function jumpToCard(fromCardEl, id) {
+  let pos = state.order.findIndex((c) => c.id === id);
+  if (pos < 0) {                 // 被当前筛选排除 → 切回“全部”再找
+    setFilter('all');
+    pos = state.order.findIndex((c) => c.id === id);
+  }
+  if (fromCardEl) goPanel(fromCardEl, 0);
+  if (pos < 0) { toast('关联卡片未找到'); return; }
+  const feed = $('#feed');
+  feed.scrollTo({ top: pos * feed.clientHeight, behavior: 'smooth' });
+  const el = document.querySelector('.card[data-idx="' + pos + '"]');
+  if (el) goPanel(el, 0);
+  toast('🔗 已跳转到关联卡片');
 }
 
 /* ---------------- 互动 ---------------- */
@@ -323,6 +511,9 @@ document.addEventListener('click', (e) => {
     if (act === 'answer') answerQuiz(el.dataset.card, Number(el.dataset.opt));
     else if (act === 'detail') revealDetail();
     else if (act === 'back') backToMain(el.closest('.card'));
+    else if (act === 'assoc') goPanel(el.closest('.card'), 2);
+    else if (act === 'back2') goPanel(el.closest('.card'), 1);
+    else if (act === 'jump') jumpToCard(el.closest('.card'), el.dataset.id);
     else if (act === 'filter') setFilter(el.dataset.filter);
     return;
   }
@@ -334,7 +525,7 @@ document.addEventListener('click', (e) => {
 
 $('#btn-up').addEventListener('click', () => nav(-1));
 $('#btn-down').addEventListener('click', () => nav(1));
-$('#btn-detail').addEventListener('click', revealDetail);
+$('#btn-detail').addEventListener('click', () => stepPanel(1));
 $('#btn-like').addEventListener('click', toggleLike);
 $('#btn-fav').addEventListener('click', toggleFav);
 $('#btn-share').addEventListener('click', shareCard);
@@ -342,8 +533,8 @@ $('#btn-share').addEventListener('click', shareCard);
 document.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); nav(1); }
   else if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); nav(-1); }
-  else if (e.key === 'ArrowRight') { e.preventDefault(); revealDetail(); }
-  else if (e.key === 'ArrowLeft') { e.preventDefault(); backToMain(); }
+  else if (e.key === 'ArrowRight') { e.preventDefault(); stepPanel(1); }
+  else if (e.key === 'ArrowLeft') { e.preventDefault(); stepPanel(-1); }
   else if (e.key === 'l' || e.key === 'L') toggleLike();
 });
 

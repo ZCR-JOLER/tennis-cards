@@ -87,6 +87,7 @@ body {
   width: 100%; height: 100%;
   flex: 0 0 100%;
   scroll-snap-align: start;
+  scroll-snap-stop: always; /* 快滑也逐级落屏：原卡→战报→联想 */
   display: flex; flex-direction: column; justify-content: center; align-items: center;
   padding: 72px 20px 40px;
   overflow-y: auto;
@@ -213,14 +214,54 @@ body {
 }
 .rp-title {
   font-size: 12.5px; letter-spacing: 2px; font-weight: 700;
-  color: #7dd3fc; margin-bottom: 8px;
+  color: #7dd3fc; margin-bottom: 6px;
+}
+.rp-group { padding: 7px 0; }
+.rp-group + .rp-group {
+  margin-top: 7px; padding-top: 11px;
+  border-top: 1px dashed rgba(125,211,252,.16);
+}
+.rp-gtitle {
+  font-size: 11.5px; letter-spacing: 1px; font-weight: 700;
+  color: rgba(125,211,252,.85); margin-bottom: 4px;
 }
 .rp-line {
-  font-size: clamp(13.5px, 2.1vw, 16px);
-  line-height: 1.75;
+  font-size: clamp(13px, 2vw, 15px);
+  line-height: 1.72;
   color: var(--text);
 }
 .rp-line + .rp-line { margin-top: 2px; }
+.rp-line .em { color: #fcd34d; font-weight: 600; }
+
+/* ---------- 联想面板（第三屏） ---------- */
+.assoc-panel { background: rgba(10,4,26,.38); }
+.assoc-hint { color: #c4b5fd; margin-top: 4px; }
+.card-assoc { width: 100%; }
+.ac-title {
+  font-size: 12.5px; letter-spacing: 2px; font-weight: 700;
+  color: #c4b5fd; margin-bottom: 8px;
+}
+.ac-group { padding: 8px 0; }
+.ac-group + .ac-group {
+  margin-top: 8px; padding-top: 12px;
+  border-top: 1px dashed rgba(196,181,253,.18);
+}
+.ac-gname {
+  font-size: 11.5px; letter-spacing: 1px; font-weight: 700;
+  color: rgba(196,181,253,.88); margin-bottom: 4px;
+}
+.ac-item {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  background: rgba(196,181,253,.07); border: 1px solid var(--panel-border);
+  border-radius: 12px; padding: 10px 14px; margin-top: 6px;
+  color: var(--text); font-size: clamp(12.5px, 1.9vw, 14.5px);
+  text-align: left; cursor: pointer; transition: all .15s;
+}
+.ac-item:hover, .ac-item:active { border-color: rgba(196,181,253,.55); background: rgba(196,181,253,.13); }
+.ac-year { color: #c4b5fd; font-weight: 800; flex: none; font-variant-numeric: tabular-nums; }
+.ac-txt { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ac-go { flex: none; color: rgba(196,181,253,.7); }
+.ac-empty { color: var(--muted); font-size: 13.5px; padding: 6px 0 14px; }
 .detail-meta { font-size: 13px; color: var(--muted); margin-bottom: 22px; }
 .answer-reveal {
   display: inline-block;
